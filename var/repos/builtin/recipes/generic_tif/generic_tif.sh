@@ -45,7 +45,7 @@ short_usage() {
 
 
 # argument parsing using getopt - WORKS ONLY ON LINUX BY DEFAULT
-parsedArguments=$( \
+parsedArguments=$(
   getopt --alternative \
   --name "generic-tif" \
   -o i:o:v:r:s:e:l:n:f:F:t:a:u:q:p:c:L: \
@@ -54,7 +54,7 @@ parsedArguments=$( \
   --long lon-lims:,shape-file:,fid:, \
   --long print-geotiff:,stat:,include-na:, \
   --long quantile:,prefix:,cache:, \
-  --long lib-path: -- "$@" \
+  --long lib-path: -- "$@"
 )
 validArguments=$?
 if [ "$validArguments" != "0" ]; then
@@ -76,7 +76,7 @@ do
     -i | --dataset-dir)   geotiffDir="$2"      ; shift 2 ;; # required
     -o | --output-dir)    outputDir="$2"       ; shift 2 ;; # required
     -v | --variable)      variables="$2"       ; shift 2 ;; # required
-    -r | --crs)           crs="$2"             ; shift 2 ;; # required 
+    -r | --crs)           crs="$2"             ; shift 2 ;; # required
     -s | --start-date)    startDate="$2"       ; shift 2 ;; # redundant - added for compatibility
     -e | --end-date)      endDate="$2"         ; shift 2 ;; # redundant - added for compatibility
     -l | --lat-lims)      latLims="$2"         ; shift 2 ;; # required - could be redundant
@@ -127,7 +127,7 @@ shopt -s expand_aliases
 # necessary hard-coded paths
 exactextractrCache="${renvCache}/exact-extract-env" # exactextractr renv cache path
 renvPackagePath="${renvCache}/renv_1.1.1.tar.gz" # renv_1.1.1 source path
-gistoolPath="$(dirname $0)/../../../../../" # gistool's path 
+gistoolPath="$(dirname $0)/../../../../../" # gistool's path
 
 
 # ==========================
@@ -150,19 +150,19 @@ logDate () { echo "($(date +"%Y-%m-%d %H:%M:%S")) "; }
 # ================
 
 #######################################
-# Extract ESRI Shapefile extents 
+# Extract ESRI Shapefile extents
 #
 # Globals:
 #   lonLims: longitude limits in
-#	     lat/lon system
+#            lat/lon system
 #   latLims: latitude limits in
-#	     lat/lon system
+#            lat/lon system
 #
 # Arguments:
 #   shapefilePath: path to the ESRI
-#		   Shapefile
+#                  Shapefile
 #   destProj4: destination projection,
-#	       (optional)
+#              (optional)
 #
 # Outputs:
 #   one mosaiced (merged) GeoTIFF under
@@ -182,14 +182,13 @@ extract_shapefile_extents () {
   local destProj4=$2
 
   # extract PROJ.4 string for $shapefilePath
-  # sourceProj4=$(ogrinfo -al -so "$shapefilePath" | grep -e "PROJ.4" 2>/dev/null)
-  sourceProj4=$(ogrinfo -al -so "$shapefilePath" | grep "PROJ\.4" | awk -F': ' '{print $2}')
+  sourceProj4=$(ogrinfo -al -so "$shapefilePath" | grep "PROJ\\.4" | awk -F': ' '{print $2}')
 
   # if $sourceProj4 is missing, assign EPSG:4326 as default value and warn
   if [[ -z "$sourceProj4" ]]; then
     sourceProj4="EPSG:4326"
     echo "$(logDate)$(basename $0): WARNING! Assuming EPSG:4326 for the" \
-    		"input ESRI Shapefile to extract the extents"
+         "input ESRI Shapefile to extract the extents"
   fi
 
   # if $destProj4 provided, reproject and extract extent in the new
@@ -202,19 +201,18 @@ extract_shapefile_extents () {
     ogr2ogr \
       -s_srs "$sourceProj4" \
       -t_srs "$destProj4" \
-      "${tempShapefile}" "${shapefilePath}";
+      "${tempShapefile}" "${shapefilePath}"
 
-      #-f "ESRI Shapefile" \
     # assign the path of the projected file as the $shapefilePath
     shapefilePath="${tempShapefile}"
   fi
 
   # extract the shapefile extent
   IFS=' ' read -ra shapefileExtents <<< "$(ogrinfo -so -al "$shapefilePath" | sed 's/[),(]//g' | grep Extent)"
- 
+
   # transform limits and assigning to relevant variables
-  IFS=' ' read -ra lowerLeftLims <<< $(echo "${shapefileExtents[@]:1:2}")
-  IFS=' ' read -ra upperRightLims <<< $(echo "${shapefileExtents[@]:4:5}")
+  IFS=' ' read -ra lowerLeftLims <<< "$(echo "${shapefileExtents[@]:1:2}")"
+  IFS=' ' read -ra upperRightLims <<< "$(echo "${shapefileExtents[@]:4:5}")"
 
   # define $latLims and $lonLims from $shapefileExtents
   lonLims="${lowerLeftLims[0]},${upperRightLims[0]}"
@@ -229,47 +227,42 @@ extract_shapefile_extents () {
 #            limits
 #   lonLims: comma-delimited longitude
 #            limits
-#   sourceProj4: the extents projection
 #
 # Arguments:
-#   sourceVrt: source vrt file
-#   destPath: destionation path (inclu-
-#	      ding file name)
+#   sourceVrt: source raster file
+#   destPath: destination path (inclu-
+#             ding file name)
 #
 # Outputs:
-#   one mosaiced (merged) GeoTIFF under
-#   the $destDir
+#   one subset GeoTIFF under $destPath
 #######################################
 subset_geotiff () {
-  # local variables
   local latMin
   local latMax
   local lonMin
   local lonMax
   local sortedLats
   local sortedLons
-  # reading arguments
   local sourceVrt="$1"
   local destPath="$2"
 
   # extracting minimum and maximum of latitude and longitude respectively
-  ## latitude
   sortedLats=($(sort_comma_delimited "$latLims"))
   latMin="${sortedLats[0]}"
   latMax="${sortedLats[1]}"
-  ## longitude
+
   sortedLons=($(sort_comma_delimited "$lonLims"))
   lonMin="${sortedLons[0]}"
   lonMax="${sortedLons[1]}"
 
-  # subset based on lat/lon in their given projection - flush to disk at 500MB
-  GDAL_CACHEMAX=500
-  gdal_translate --config GDAL_CACHEMAX 500 \
+  # subset based on geographic limits expressed in lon/lat
+  gdalwarp --config GDAL_CACHEMAX 500 \
+    -te "$lonMin" "$latMin" "$lonMax" "$latMax" \
+    -te_srs OGC:CRS84 \
     -co COMPRESS="DEFLATE" \
     -co BIGTIFF="YES" \
-    -projwin "$lonMin" "$latMax" "$lonMax" "$latMin" "${sourceVrt}" "${destPath}" \
-    -projwin_srs "$rasterProj4" \
-    > /dev/null;
+    "${sourceVrt}" "${destPath}" \
+    > /dev/null
 }
 
 
@@ -292,15 +285,13 @@ if [[ -n $shapefile ]]; then
   # create latLims and lonLims variables specifying the limits of the ESRI Shapefile
   extract_shapefile_extents "${shapefile}" "${rasterProj4}"
 else
-  sourceProj4="EPSG:4326"
-  rasterProj4="$sourceProj4"
+  sourceProj4="OGC:CRS84"
 fi
 
 # Subset and produce stats if needed
 if [[ "$printGeotiff" == "true" ]]; then
   echo "$(logDate)$(basename $0): subsetting GeoTIFFs under $outputDir"
   for var in "${variables[@]}"; do
-    # Subset based on lat and lon values
     subset_geotiff "${geotiffDir}/${var}" "${outputDir}/${prefix}${var}"
   done
 fi
@@ -309,20 +300,16 @@ fi
 if [[ -n "$shapefile" ]] && [[ -n $stats ]]; then
   echo "$(logDate)$(basename $0): Extracting stats under $outputDir"
   mkdir -p "$cache/r-virtual-env/"
-  ## Make R renv in $cache
   virtualEnvPath="$cache/r-virtual-env/"
   cp "${gistoolPath}/etc/renv/renv.lock" "$virtualEnvPath"
 
-  ## Make the temporary directory for installing r packages
   tempInstallPath="$cache/r-packages"
   mkdir -p "$tempInstallPath"
   export R_LIBS_USER="$tempInstallPath"
 
-  # Extract given stats for each variable
   for var in "${variables[@]}"; do
     varName="$(echo "$var" | cut -d '.' -f 1)"
 
-    ## Build renv and create stats
     Rscript "${gistoolPath}/etc/scripts/stats.R" \
       "$tempInstallPath" \
       "$exactextractrCache" \
@@ -336,16 +323,15 @@ if [[ -n "$shapefile" ]] && [[ -n $stats ]]; then
       "$stats" \
       "$includeNA" \
       "$quantiles" \
-      "$fid" >> "${outputDir}/${prefix}stats_${varName}.log" 2>&1;
+      "$fid" >> "${outputDir}/${prefix}stats_${varName}.log" 2>&1
   done
 fi
 
-# Remove unnecessary files 
-mkdir "$HOME/empty_dir" 
+# Remove unnecessary files
+mkdir "$HOME/empty_dir"
 echo "$(logDate)$(basename $0): deleting temporary files from $cache"
 rsync --quiet -aP --delete "$HOME/empty_dir/" "$cache"
 rm -r "$cache"
 echo "$(logDate)$(basename $0): temporary files from $cache are removed"
 echo "$(logDate)$(basename $0): results are produced under $outputDir"
-
 
